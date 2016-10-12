@@ -1,31 +1,65 @@
 import numpy as np
-import defaultdict
-import pandas as pd
 
-class PLC:
-    def __init__(self, nX, nY, nW, nR, nT, nC):
-        self.X = np.zeros(nX, dtype="bool")
-        self.Y = np.zeros(nY, dtype="bool")
-        self.W = np.zeros(nD, dtype="uint16")
-        self.R = np.zeros(nR, dtype="float32")
-        self.T = np.zeros(nT, dtype="uint16")
-        self.T_u = np.zeros(nC, dtype="bool")
-        self.T_a = np.zeros(nT, dtype="bool")
-        self.C = np.zeros(nC, dtype="uint16")
-        self.C_u = np.zeros(nC, dtype="bool")
-        self.C_a = np.zeros(nC, dtype="bool")
-        self.Archive = defaultdict(list)
+def dict_diff(d1, d2):
+    out = {}
+    for k, v in d2.iteritems():
+        out[k] = v - d1[k]
+    return out
+
+class Data_Recorder:
+    def __init__(self, control, monitor, usr_control = [], usr_monitor = [], plc_control = []):
+        self.usr_control, self.usr_monitor, self.plc_control = usr_control, usr_monitor, plc_control
+        # TODO: Assert no item in plc_control is in control or usr_control
+        self.control = self.control.keys()
+        self.monitor = self.monitor.keys()
+        self.both = list(set(control).union(monitor))
+        state = control.copy()
+        state.update(monitor)
+        self.data = [state]
+        
+    def __setitem__(self, key, val):
+        """ You can only set keys in self.control """
+        if key in self.control:
+            self.data[-1][key] = float(val)
+        else:
+            raise KeyError
+        
+    def __getitem__(self, key):
+        """ You can only read keys in self.monitor """
+        if key in self.monitor:
+            return self.data[-1][key]
+        else:
+            raise KeyError
+    
+    def setState(self, state):
+        """ Calls setitem over a dictionary state """
+        for k, v in state.iteritems():
+            self[k] = v
+            
+    def nextT(self):
+        """ Saves last state and creates identical new state """
+        self.data.append(self.data[-1].copy())
+        
+    def getControlT(self, t = 0):
+        out = []
+        for k in self.control:
+            out.append(self.data[-1][k])
+        return np.array(out, dtype="float32"), self.control
+        
+    def getMonitorT(self, t = 0):
+        out = []
+        for k in self.monitor:
+            out.append(self.data[-1][k])
+        return np.array(out, dtype="float32"), self.monitor
+    
+    def getT(self, t = 0):
+        out = []
+        for k in self.monitor:
+            out.append(self.data[-1][k])
+        return np.array(out, dtype="float32"), self.both
+        
     def __len__(self):
-        return len(self.Archive['timestamp'])
-    def nextT(self, timestamp):
-        self.Archive['X'].append(self.X.copy())
-        self.Archive['Y'].append(self.Y.copy())
-        self.Archive['W'].append(self.W.copy())
-        self.Archive['R'].append(self.R.copy())
-        self.Archive['T'].append(self.T.copy())
-        self.Archive['T_u'].append(self.T_u.copy())
-        self.Archive['T_a'].append(self.T_a.copy())
-        self.Archive['C'].append(self.C.copy())
-        self.Archive['C_u'].append(self.T_a.copy())
-        self.Archive['C_a'].append(self.C_a.copy())
-        self.Archive['timestamp'].append(timestamp)
+        return len(self.data)
+        
+    def __repr__(self):
+        return self.data[-1].copy()

@@ -5,6 +5,7 @@ def addv(var, v):
 
 MANUAL, AUTO = 0., 1.
 RED, YELLOW, GREEN = 0., 1., 2.
+TRAINING, WATCHING, CONTROL = 1., 2., 3.
 class FourWayStop:
     def __init__(self):
         # Initialize TK
@@ -15,6 +16,54 @@ class FourWayStop:
         self.canvas = Canvas(window, width=500, height=300)
         self.canvas.pack()
 
+        def createButton(loc, text, command = None):
+            b = Button(self.frame, text=text, command=command)
+            b.grid(row=loc[0], column=loc[1])
+            return b
+            
+        def createDoubleVar(writetrace = None):
+            v = DoubleVar()
+            v.trace('w', writetrace)
+            return v
+            
+        def createLabel(loc, text):
+            if isinstance(text, str):
+                l = Label(self.frame, text = text)
+            else:
+                l = Label(self.frame, textvariable=text)
+            l.grid(row=loc[0], col=loc[1])
+            return l
+            
+        def createNumericLabel(loc, labelstr, default=-1.):
+            v = DoubleVar()
+            s = StringVar()
+            def numeric_update(self):
+                s.set("{}: {}".format(labelstr, v.get()))
+            v.trace('w', numeric_update)
+            l = createLabel(loc, s)
+            v.set(default)
+            return v, s, l
+        
+        def createNumericField(loc, text, update_func = None):
+            v = DoubleVar()
+            v.set(1)
+            l = createLabel(loc=loc, text=text+": ")
+            e = Entry(self.frame, textvariable=s)
+            e.grid(row = loc[0], column = loc[1]+1)
+            def update(self, *args):
+                try:
+                    v = float(self.YELLOWTIME2_string.get())
+                except:
+                    pass
+                finally:
+                    if update_func:
+                        ok = update_func(v)
+                        if ok: v.set(v)
+                    else:
+                        
+            createButton(loc = (loc[0],loc[1]+1), text = "Update", command = update)
+
+        
         # Create T and it's label
         self.T = DoubleVar()
         self.Tstring = StringVar()
@@ -24,10 +73,8 @@ class FourWayStop:
         self.T.set(0)
 
         # Create two colors
-        self.color1 = DoubleVar()
-        self.color2 = DoubleVar()
-        self.color1.trace('w', self.color_change1)
-        self.color2.trace('w', self.color_change2)
+        self.color1 = createDoubleVar(self.color_change1)
+        self.color2 = createDoubleVar(self.color_change2)
 
         # Create six indicators, 3 for each color
         self.red1 = self.canvas.create_oval(10, 10, 110, 110, fill="white")
@@ -42,57 +89,35 @@ class FourWayStop:
         self.mode.trace('w', self.mode_change)
 
         # One button for each
-        self.manual_b = Button(self.frame, text="Manual", command=self.set_manual)
-        self.manual_b.grid(row=1, column=1)
-        self.auto_b = Button(self.frame, text="Auto", command=self.set_auto)
-        self.auto_b.grid(row=1, column=2)
+        self.manual_b = createButton(loc=(1,1), text = "Manual", command = self.set_manual)
+        self.auto_b = createButton(loc=(1,2), text = "Auto", command = self.set_auto)
         self.mode.set(MANUAL)
 
         # Create Manual buttons
-        self.red_b1 = Button(self.frame, text="Red", command=self.manual_red1)
-        self.red_b1.grid(row = 2, column = 1)
-        self.yellow_b1 = Button(self.frame, text="Yellow", command=self.manual_yellow1)
-        self.yellow_b1.grid(row = 2, column = 2)
-        self.green_b1 = Button(self.frame, text="Green", command=self.manual_green1)
-        self.green_b1.grid(row = 2, column = 3)
-
-        self.red_b2 = Button(self.frame, text="Red", command=self.manual_red2)
-        self.red_b2.grid(row = 3, column = 1)
-        self.yellow_b2 = Button(self.frame, text="Yellow", command=self.manual_yellow2)
-        self.yellow_b2.grid(row = 3, column = 2)
-        self.green_b2 = Button(self.frame, text="Green", command=self.manual_green2)
-        self.green_b2.grid(row = 3, column = 3)
+        self.red_b1 = createButton(loc=(2,1), text = "Red", command = self.manual_red1)
+        self.yellow_b1 = createButton(loc=(2,2), text = "Yellow", command = self.manual_yellow1)
+        self.green_b1 = createButton(loc=(2,3), text = "Green", command = self.manual_green1)
+        self.red_b2 = createButton(loc=(3,1), text = "Red", command = self.manual_red2)
+        self.yellow_b2 = createButton(loc=(3,2), text = "Yellow", command = self.manual_yellow2)
+        self.green_b2 = createButton(loc=(3,3), text = "Green", command = self.manual_green2)
         self.color1.set(RED)
         self.color2.set(GREEN)
 
-        self.iterate_b = Button(self.frame, text="Next", command=self.next)
-        self.iterate_b.grid(row = 4, column = 1)
-
+        self.iterate_b = createButton(loc=(4,1), text = "Next", command = self.next)
+        
+        # AI Buttons and Labels
+        self.aimode = DoubleVar()
+        self.start_training_b = createButton((5, 7), "Start Training", command = self.start_training)
+        self.stop_training_b  = createButton((5, 8), "Stop Training", command = self.stop_training)
+        self.activate_b       = createButton((5, 9), "Activate AI", command = self.activate_ai)
+        self.deactivate_b    = createButton((5, 9), "Deactivate AI", command = self.deactivate_ai)
+        self.aiconf, _, _ = createNumericLabel((5,11), "Confidence", default=-1.)
+    
         # Cars and pedestrians
-        self.cars1 = DoubleVar()
-        self.cars2 = DoubleVar()
-        self.ped1 = DoubleVar()
-        self.ped2 = DoubleVar()
-        self.cars1_string = StringVar()
-        self.cars2_string = StringVar()
-        self.ped1_string = StringVar()
-        self.ped2_string = StringVar()
-        self.cars1_label = Label(self.frame, textvariable=self.cars1_string)
-        self.cars1_label.grid(row = 5, column = 1)
-        self.cars2_label = Label(self.frame, textvariable=self.cars2_string)
-        self.cars2_label.grid(row = 5, column = 2)
-        self.ped1_label = Label(self.frame, textvariable=self.ped1_string)
-        self.ped1_label.grid(row = 5, column = 3)
-        self.ped2_label = Label(self.frame, textvariable=self.ped2_string)
-        self.ped2_label.grid(row = 5, column = 4)
-        self.cars1.trace('w', self.cars1_update)
-        self.cars2.trace('w', self.cars2_update)
-        self.ped1.trace('w', self.ped1_update)
-        self.ped2.trace('w', self.ped2_update)
-        self.cars1.set(0)
-        self.cars2.set(0)
-        self.ped1.set(0)
-        self.ped2.set(0)
+        self.cars1, _, _ = createNumericLabel((5,1), "Cars1", default=0.)
+        self.cars2, _, _ = createNumericLabel((5,2), "Cars2", default=0.)
+        self.ped1, _, _ = createNumericLabel((5,3), "Ped1", default=0.)
+        self.ped2, _, _ = createNumericLabel((5,11), "Ped2", default=0.)
 
         # Green Time and Yellow Time
         self.greenstart = 0
@@ -140,6 +165,18 @@ class FourWayStop:
         #self.T_txt = Text(self.frame)
         #self.T_txt.grid(row = 4, column = 2)
         mainloop()
+
+    # AI Buttons and modes
+    def start_training(self):
+        self.aimode.set(TRAINING)
+    def stop_training(self):
+        self.aimode.set(WATCHING)
+    def activate_ai(self):
+        self.aimode.set(CONTROL)
+    def deactivate_ai(self):
+        self.aimode.set(WATCHING)
+    def aiconf_update(self):
+        self.aiconf_string.set("Confidence: {}".format(self.aiconf.get()))
 
     # Auto and Manual Modes
     def mode_change(self, *args):
@@ -221,16 +258,6 @@ class FourWayStop:
             elif self.color2.get() == YELLOW and (self.yellowstart - T + self.YELLOWTIME2.get()) <= 0:
                 self.color2.set(RED)
                 self.color1.set(GREEN)
-
-    # Cars and pedestrians
-    def cars1_update(self, *args):
-        self.cars1_string.set("Cars1: {}".format(self.cars1.get()))
-    def cars2_update(self, *args):
-        self.cars2_string.set("Cars2: {}".format(self.cars2.get()))
-    def ped1_update(self, *args):
-        self.ped1_string.set("Ped1: {}".format(self.ped1.get()))
-    def ped2_update(self, *args):
-        self.ped2_string.set("Ped2: {}".format(self.ped2.get()))
 
     # Green and Yellow time
     def GREENTIME1_update(self, *args):
