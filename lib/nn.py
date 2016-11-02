@@ -44,10 +44,10 @@ def hotone(index, L):
     out[index] = 1
     return out
     
-def softmax(x):
+def softmax(x, axis = 0):
     """Compute softmax values for each sets of scores in x.
        REF: http://stackoverflow.com/questions/34968722/softmax-function-python """
-    return np.exp(x) / np.sum(np.exp(x), axis=0)
+    return np.exp(x) / np.sum(np.exp(x), axis=axis)
 
 def variable_summaries(var, name):
     """SOURCE: https://www.tensorflow.org/versions/r0.8/how_tos/summaries_and_tensorboard/index.html"""

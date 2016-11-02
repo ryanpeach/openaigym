@@ -1,0 +1,3 @@
+openaigym.video*
+*.pyc
+*/__pycache__

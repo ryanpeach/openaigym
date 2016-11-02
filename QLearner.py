@@ -4,24 +4,98 @@
 
 import numpy as np
 import tensorflow as tf
-from nn import *
+from lib.nn import *
 
+class QNetwork(object):
+    def __init__(self, states_n, actions_n, learn_rate = 1e-6, save_path = None, debug = True):
+        self.states_n, self.actions_n = states_n, actions_n
+        self.path = save_path
+        savefile = self._get_savefile()
+        self.debug, self.T = debug, 0
+        self._graph = tf.Graph()
+        with self._graph.as_default():
+            # Running Info
+            # Inputs Required
+            self._state_input = tf.placeholder(tf.float32, shape=(None, states_n))
+            
+            # Get the Q output vector-list given the state
+            W0 = tf.Variable(tf.random_uniform([states_n, 512], -1.0, 1.0))
+            b0 = tf.Variable(tf.zeros([512]))
+            y0 = tf.matmul(self._state_input, W0) + b0
+            W1 = tf.Variable(tf.random_uniform([512, actions_n], -1.0, 1.0))
+            b1 = tf.Variable(tf.zeros([actions_n]))
+            self._q_output = tf.matmul(y0, W1) + b1
+            
+            # Training Info
+            # Inputs Required
+            self._expected_reward_input = tf.placeholder(tf.float32, shape=(None, actions_n))      # Used to input the predicted reward based on the NN given the next state
+            
+            # Calculation of expected vs predicted values
+            # Need to mask q value out by action input
+            
+            # Loss and optimize
+            self._loss = (self._q_output - self._expected_reward_input)**2.     # Seeks the convergance of the predicted Q given this state, and the expected Q given the Q formula and real rewards
+            self._optimizer = tf.train.GradientDescentOptimizer(learn_rate).minimize(self._loss)
+            self._init_op = tf.initialize_all_variables()
+            self._saver = tf.train.Saver()
+            
+            self._sess = tf.Session()
+            if savefile is None: self._sess.run(self._init_op)
+            else: self.load(savefile)
+    
+    def train(self, states, action_mask, expected_rewards):
+        _, loss, _ = self._sess.run([self._q_output, self._loss, self._optimizer],
+                                     feed_dict={ self._state_input      : states,
+                                                 self._expected_reward_input : expected_rewards})
+        #print("Loss: {}".format(loss))
+        self.T += 1
+        return loss
+        
+    def run(self, states):
+        """ Given a state, returns the q for each possible action,
+            the index of the action with the best expected reward,
+            and the value of the expected reward """
+        if self.debug: print("State: {}".format(state))
+        q_vec = np.vstack(self._sess.run([self._q_output], 
+                                feed_dict={self._state_input: states}))
+        assert not np.any(np.isnan(q_vec)), "Q Vector includes NaN values."
+        
+        # Get the best (highest reward) action
+        # Index q_vec by the action (Tested: Works)
+        expected_action = np.argmax(q_vec, axis=1)
+        expected_reward = q_vec[np.arange(len(q_vec)),expected_action]
+        
+        if self.debug: print("Q: {}, \neA: {}, \neR: {} \n-------".format(q_vec, expected_action, expected_reward))
+        return q_vec, expected_action, expected_reward
+                                                 
+    def save(self):
+        self._saver.save(self._sess, self.path, global_step=self.T)
+    def load(self, savefile):
+        self._saver.restore(self._sess, savefile)
+    def _get_savefile(self):
+        """ Gets the newest savefile from self.path.
+            Returns None if no checkpoints in directory."""
+        files = []
+        for file in os.listdir(self.path):
+            if file.endswith(".ckpt"):
+                files.append(file)
+        if len(files) == 0:
+            return None
+        else:
+            return list(sorted(files))[0]
+            
 class QLearner(object):
     """ A network-agnostic Q Learner """
-    def __init__(self, states, actions, Q_network,
-                       learn_rate = 1e-6, future_weight = .99, memsize = 1e6):
+    def __init__(self, states, actions, network,
+                       future_weight = .90, memsize = 1e6):
         # Set constants
         self.MEMORY  = RollingMemory(memsize)
-        self.STATES  = States
-        self.ACTIONS = Actions
+        self.STATES  = states
+        self.ACTIONS = actions
         self.future_weight = future_weight
-        self.learn_rate    = learn_rate
+        self.Network = network
 
-        # Create the network based on the Q_Network given
-        self._create_network(Q_network)
-        self.T = 0  # The number of training steps taken
-    
-    def _create_network(self, Q_network):
+    def _create_network(self):
         self._graph = tf.Graph()
         with self._graph.as_default():
             # Running Info
@@ -29,42 +103,47 @@ class QLearner(object):
             self._state_input = tf.placeholder(tf.float32, shape=(None, len(self.STATES)))
             
             # Get the Q output vector-list given the state
-            self._q_output = Q_network(self._state_input, len(self.STATES), len(self.ACTIONS), self.learn_rate)
+            W0 = tf.Variable(tf.random_uniform([len(self.STATES), 512], -1.0, 1.0))
+            b0 = tf.Variable(tf.zeros([512]))
+            y0 = tf.matmul(self._state_input, W0) + b0
+            W1 = tf.Variable(tf.random_uniform([512, len(self.ACTIONS)], -1.0, 1.0))
+            b1 = tf.Variable(tf.zeros([len(self.ACTIONS)]))
+            self._q_output = tf.matmul(y0, W1) + b1
             
             # Training Info
             # Inputs Required
-            self._action_input = tf.placeholder(tf.int, shape(None, 1))                # Index of the action taken
-            self._expected_reward_input = tf.placeholder(tf.float32, shape=(None, 1))  # Used to input the predicted reward based on the NN given the next state
+            self._action_input = tf.placeholder(tf.bool, shape=(None, len(self.ACTIONS))) # Index of the action taken
+            self._expected_reward_input = tf.placeholder(tf.float32, shape=(None))      # Used to input the predicted reward based on the NN given the next state
+            
             
             # Calculation of expected vs predicted values
-            self._predicted_reward = self._q_output[self._action_input]                # The reward based on input state data and action taken
-            
+            # Need to mask q value out by action input
+            self._masked_action = tf.select(self._action_input, self._q_output, tf.zeros_like(self._q_output))
+            self._predicted_reward = tf.reduce_sum(self._masked_action, reduction_indices=[1,])
+           
             # Loss and optimize
+            #self._loss = tf.reduce_sum((self._predicted_reward - self._expected_reward_input)**2.)**.5    # Seeks the convergance of the predicted Q given this state, and the expected Q given the Q formula and real rewards
             self._loss = (self._predicted_reward - self._expected_reward_input)**2.    # Seeks the convergance of the predicted Q given this state, and the expected Q given the Q formula and real rewards
             self._optimizer = tf.train.GradientDescentOptimizer(self.learn_rate).minimize(self._loss)
-
+            self._init_op = tf.initialize_all_variables()
+            
+            self._sess = tf.Session()
+            self._sess.run(self._init_op)
+        
     # Outside Callable Functions
     def record(self, state, action, next_state, reward, done = False):
         self.MEMORY.add((state, action, reward, next_state, done))
-    
-    def Q(self, state):
-        """ Given a state, returns the q for each possible action,
-            the index of the action with the best expected reward,
-            and the value of the expected reward """
-        q_vec = self._session.run([self._q_output], 
-                                   feed_dict={self._state_input: state})
-        expected_action = np.argmax(q_vec)
-        expected_reward = q_vec[expected_action]
-        return q_vec, expected_action, expected_reward
-    
+
     def action_randomize(self, action_index, conf = None):
         """ Select random action if dice comes up greater than confidence. """
         if conf is None: conf = self.confidence_time_decay()
         
-        if np.random.rand() > conf:
+        if np.random.rand() < conf:
             return action_index
         else:
-            return np.random.randint(0, self.Na)
+            out = np.random.randint(0, len(self.ACTIONS))
+            #print("Random {}, Conf: {}".format(out, conf))
+            return out
 
     def train_step(self, Ns):
         """ Runs one single training step on network based on random sample from memory.
@@ -75,29 +154,26 @@ class QLearner(object):
               loss : vector; The list of losses for each sample. """
               
         # Get a random sample of the memory
-        if Ns > len(self.memory):
-            Ns = len(self.memory)
-        mem_sample = random.sample(list(self.memory.Mem), Ns)    # Get random sample of indexes
-        states, actions, rewards, results, terminal = zip(*mem_sample)
-            
+        if Ns > len(self.MEMORY):
+            Ns = len(self.MEMORY)
+        mem_sample = random.sample(list(self.MEMORY.Mem), Ns)    # Get random sample of indexes
+        states, action_index, rewards, results, terminal = zip(*mem_sample)
+        action_mask = (np.arange(len(self.ACTIONS))[np.newaxis,:] == np.array(action_index)[:,np.newaxis])
+        states, results = np.vstack(states), np.vstack(results)
+        
         # Get predicted rewards for each result as is
-        _, _, reward_predictions = Q(self, states)
+        rewards_calculated, _, _  = self.Network.run(states)
+        _, _, reward_predictions  = self.Network.run(results)
         expected_rewards = []
         for i in range(Ns):
+            a = rewards_calculated[i]
             if terminal[i]:
-                expected_rewards.append(rewards[i])
+                a[action_index[i]] = rewards[i]
             else:
-                expected_rewards.append(rewards[i] + self.future_weight * 
-                    np.max(reward_predictions[i], axis = 1)) # This is the Bellman Equation
-            
-        # learn that these actions in these states lead to these rewards
-        _, _, loss, _ = self._session.run([self._q_output, self._loss, self._optimizer],
-                                           feed_dict={ self._state_input      : states,
-                                                       self._action_input     : actions,
-                                                       self._expected_reward_input : expected_rewards })
+                a[action_index[i]] = rewards[i] + self.future_weight * reward_predictions[i]
+            expected_rewards.append(a) # This is the Bellman Equation
         
-        self.T += 1 # Update training count
-        return loss
+        return self.Network.train(states, action_mask, expected_rewards)
         
         # Print & Save   
         # self.train_writer.add_summary(summ, self.T)
@@ -107,28 +183,28 @@ class QLearner(object):
 
 class RealtimeQLearner(QLearner):
     def __init__(self, states, actions, Q_network, 
-                 learn_rate = 1e-6, future_weight = .99, memsize = 1e6,
+                 learn_rate = 1e-7, future_weight = .90, memsize = 1e6,
                  start_conf = .1, end_conf = .9, conf_period = 1e6):
-       super(RealtimeQLearner, self).__init__(states, actions, Q_network, learn_rate, future_weight, memsize)
+       super(RealtimeQLearner, self).__init__(states, actions, Q_network, future_weight, memsize)
        self.last_state = None
        self.last_action = None
+       assert start_conf >= 0. and end_conf <= 1.0 and start_conf < end_conf, "0. <= a < b <= 1.0"             # A must be less that b and both must be between 0. and 1. inclusive
        self.start_conf, self.end_conf, self.conf_period = start_conf, end_conf, conf_period
     
     def confidence_training_decay(self):
         """ Generate a confidence linearly from start_conf to end_conf over conf_period iterations. 
             Returns:
               conf : float; The current confidence value based on training iterations. """
-        assert a >= 0. and b <= 1.0 and a < b, "0. <= a < b <= 1.0"             # A must be less that b and both must be between 0. and 1. inclusive
         m = (self.end_conf-self.start_conf)/self.conf_period                    # Slope is positive over the period
-        if self.T < self.conf_period:
-            conf = m*self.T + self.start_conf
+        if self.Network.T < self.conf_period:
+            conf = m*self.Network.T + self.start_conf
         else:
             conf = self.end_conf                                                # Confidence is capped at end_conf
-        if self.MEMORY.N % 100 == 0:
-            print("Confidence: {0}".format(conf))
+        #if self.T % 100 == 0:
+        #    print("Confidence: {0}".format(conf))
         return conf
        
-    def act(self, state, reward, done = False):
+    def act(self, state, reward, done = False, randomize = True):
         """ Generates an action from the given state, and records past states.
             Must be run in order with the environment.
             Sometimes produces random actions dependent on the training confidence.
@@ -143,19 +219,25 @@ class RealtimeQLearner(QLearner):
               action_confidence : float; The probability between 0 to 1 of this being the best action given all prior knowledge.
             """
         # Update memory given last and current state/reward
-        if self.last_state is not None and self.last_reward is not None:
+        if self.last_state is not None and self.last_action is not None and reward is not None:
             self.record(self.last_state, self.last_action, state, reward, done)
-    
+        
+        state = np.array(state)
         # Get the predicted best action given the state
-        q_vec, action_index, expected_reward = self.Q(state)
-
+        q_vec, action_index, expected_reward = self.Network.run(state)
+        
+        #print("Q: {}, Ai: {}, eR: {}".format(q_vec, action_index, expected_reward))
+        q_vec, action_index, expected_reward = q_vec[0], action_index[0], expected_reward[0] # We are working in a single item batch
+        
         # Get the confidence
         # Randomize action based on training confidence
-        training_confidence = confidence_training_decay()
-        action_index = self.action_randomize(action_index, conf = training_confidence)
-        
+        training_confidence = self.confidence_training_decay()
+        if randomize:
+            action_index = self.action_randomize(action_index, conf = training_confidence)
+        #print(q_vec, action_index, expected_reward)
         # Muffle the expected reward softmax intensity based on the training decay confidence
-        action_confidence = softmax(expected_reward*training_confidence)[action_index]
+        #print(q_vec, training_confidence, softmax(q_vec*training_confidence, axis=1))
+        action_confidence = softmax(q_vec*training_confidence)[action_index]
         
         # Update needed memory for next action
         if not done:
