@@ -19,12 +19,7 @@ class QNetwork(object):
             self._state_input = tf.placeholder(tf.float32, shape=(None, states_n))
             
             # Get the Q output vector-list given the state
-            W0 = tf.Variable(tf.random_uniform([states_n, 512], -1.0, 1.0))
-            b0 = tf.Variable(tf.zeros([512]))
-            y0 = tf.matmul(self._state_input, W0) + b0
-            W1 = tf.Variable(tf.random_uniform([512, actions_n], -1.0, 1.0))
-            b1 = tf.Variable(tf.zeros([actions_n]))
-            self._q_output = tf.matmul(y0, W1) + b1
+            self._q_output, _ = ffBranch(self._state_input, [256, 512, 256, actions_n])
             
             # Training Info
             # Inputs Required
@@ -86,50 +81,15 @@ class QNetwork(object):
             
 class QLearner(object):
     """ A network-agnostic Q Learner """
-    def __init__(self, states, actions, network,
+    def __init__(self, states_n, actions_n, network,
                        future_weight = .90, memsize = 1e6):
         # Set constants
         self.MEMORY  = RollingMemory(memsize)
-        self.STATES  = states
-        self.ACTIONS = actions
+        self.NSTATES  = states_n
+        self.NACTIONS = actions_n
         self.future_weight = future_weight
         self.Network = network
 
-    def _create_network(self):
-        self._graph = tf.Graph()
-        with self._graph.as_default():
-            # Running Info
-            # Inputs Required
-            self._state_input = tf.placeholder(tf.float32, shape=(None, len(self.STATES)))
-            
-            # Get the Q output vector-list given the state
-            W0 = tf.Variable(tf.random_uniform([len(self.STATES), 512], -1.0, 1.0))
-            b0 = tf.Variable(tf.zeros([512]))
-            y0 = tf.matmul(self._state_input, W0) + b0
-            W1 = tf.Variable(tf.random_uniform([512, len(self.ACTIONS)], -1.0, 1.0))
-            b1 = tf.Variable(tf.zeros([len(self.ACTIONS)]))
-            self._q_output = tf.matmul(y0, W1) + b1
-            
-            # Training Info
-            # Inputs Required
-            self._action_input = tf.placeholder(tf.bool, shape=(None, len(self.ACTIONS))) # Index of the action taken
-            self._expected_reward_input = tf.placeholder(tf.float32, shape=(None))      # Used to input the predicted reward based on the NN given the next state
-            
-            
-            # Calculation of expected vs predicted values
-            # Need to mask q value out by action input
-            self._masked_action = tf.select(self._action_input, self._q_output, tf.zeros_like(self._q_output))
-            self._predicted_reward = tf.reduce_sum(self._masked_action, reduction_indices=[1,])
-           
-            # Loss and optimize
-            #self._loss = tf.reduce_sum((self._predicted_reward - self._expected_reward_input)**2.)**.5    # Seeks the convergance of the predicted Q given this state, and the expected Q given the Q formula and real rewards
-            self._loss = (self._predicted_reward - self._expected_reward_input)**2.    # Seeks the convergance of the predicted Q given this state, and the expected Q given the Q formula and real rewards
-            self._optimizer = tf.train.GradientDescentOptimizer(self.learn_rate).minimize(self._loss)
-            self._init_op = tf.initialize_all_variables()
-            
-            self._sess = tf.Session()
-            self._sess.run(self._init_op)
-        
     # Outside Callable Functions
     def record(self, state, action, next_state, reward, done = False):
         self.MEMORY.add((state, action, reward, next_state, done))
@@ -141,7 +101,7 @@ class QLearner(object):
         if np.random.rand() < conf:
             return action_index
         else:
-            out = np.random.randint(0, len(self.ACTIONS))
+            out = np.random.randint(0, self.NACTIONS)
             #print("Random {}, Conf: {}".format(out, conf))
             return out
 
@@ -158,7 +118,7 @@ class QLearner(object):
             Ns = len(self.MEMORY)
         mem_sample = random.sample(list(self.MEMORY.Mem), Ns)    # Get random sample of indexes
         states, action_index, rewards, results, terminal = zip(*mem_sample)
-        action_mask = (np.arange(len(self.ACTIONS))[np.newaxis,:] == np.array(action_index)[:,np.newaxis])
+        action_mask = (np.arange(self.NACTIONS)[np.newaxis,:] == np.array(action_index)[:,np.newaxis])
         states, results = np.vstack(states), np.vstack(results)
         
         # Get predicted rewards for each result as is
@@ -215,7 +175,7 @@ class RealtimeQLearner(QLearner):
               done   : bool;   Whether or not this is a terminal state for an episodic learner.
             
             Returns:
-              action_index      : int;   The index of the action selected in self.ACTIONS.
+              action_index      : int;   The index of the action selected between 0 and self.NACTIONS.
               action_confidence : float; The probability between 0 to 1 of this being the best action given all prior knowledge.
             """
         # Update memory given last and current state/reward
