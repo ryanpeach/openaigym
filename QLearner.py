@@ -29,7 +29,7 @@ class QNetwork(object):
             # Need to mask q value out by action input
             
             # Loss and optimize
-            self._loss = tf.reduce_mean(tf.squared_difference(self._q_output, self._expected_reward_input)) # Seeks the convergance of the predicted Q given this state, and the expected Q given the Q formula and real rewards
+            self._loss = tf.reduce_mean(tf.squared_difference(self._q_output,self._expected_reward_input)) # Seeks the convergance of the predicted Q given this state, and the expected Q given the Q formula and real rewards
             self._optimizer = tf.train.AdamOptimizer(learn_rate).minimize(self._loss)
             self._init_op = tf.initialize_all_variables()
             self._saver = tf.train.Saver()
@@ -37,6 +37,12 @@ class QNetwork(object):
             self._sess = tf.Session()
             self._sess.run(self._init_op)
     
+    def loss(self, states, expected_rewards):
+        _, loss = self._sess.run([self._q_output, self._loss],
+                                  feed_dict={ self._state_input           : states,
+                                              self._expected_reward_input : expected_rewards})
+        return loss
+        
     def train(self, states, expected_rewards):
         _, loss, _ = self._sess.run([self._q_output, self._loss, self._optimizer],
                                      feed_dict={ self._state_input      : states,
@@ -49,7 +55,7 @@ class QNetwork(object):
         """ Given a state, returns the q for each possible action,
             the index of the action with the best expected reward,
             and the value of the expected reward """
-        if self.debug: print("State: {}".format(state))
+        if self.debug: print("State: {}".format(states))
         q_vec = np.vstack(self._sess.run([self._q_output], 
                                 feed_dict={self._state_input: states}))
         assert not np.any(np.isnan(q_vec)), "Q Vector includes NaN values."
@@ -70,12 +76,12 @@ class QNetwork(object):
         self._saver.restore(self._sess, savefile)
             
     # Copying
-    def copy(self):
+    def _copy(self):
         """ Note: Does not copy variables. """
         return QNetwork(self.states_n, self.actions_n, learn_rate = self.learn_rate, save_path = self.path, debug = self.debug)
     def deepcopy(self):
         """ Copies variable values as well. """
-        out = self.copy()
+        out = self._copy()
         savefile = self.save(self.path+"copy")
         out.load(savefile)
         return out

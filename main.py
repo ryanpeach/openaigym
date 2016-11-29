@@ -17,7 +17,7 @@ actions = np.array([hotone(i, actions_n) for i in range(actions_n)])
 print("States: {}, Actions: {}".format(states, actions))
 goal_per_100 = 195
 EXPLORE = int(10000)
-OBSERVE = int(1000)
+OBSERVE = int(5000)
 TESTING = int(200)
 
 def plot_and_save(data, filename, path='./graphs/', smooth = 100):

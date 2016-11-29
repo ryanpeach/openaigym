@@ -40,9 +40,18 @@ class RollingMemory(object):
         return len(self.Mem)
         
 def hotone(index, L):
+    """ Returns an array length L, with all zeros except a one in given index. """
     out = np.zeros(L)
     out[index] = 1
     return out
+    
+def allhot(length):
+    """ Gets a matrix of all states expanded, assuming they are hotone indexed,
+        and there is $length$ number of states. """
+    out = []
+    for i in range(length):
+        out.append(hotone(i,length))
+    return np.array(out)
     
 def softmax(x, axis = 0):
     """Compute softmax values for each sets of scores in x.
