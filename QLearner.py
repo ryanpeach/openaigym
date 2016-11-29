@@ -7,10 +7,10 @@ import tensorflow as tf
 from lib.nn import *
 
 class QNetwork(object):
-    def __init__(self, states_n, actions_n, learn_rate = 1e-6, save_path = None, debug = True):
+    def __init__(self, states_n, actions_n, learn_rate = 1e-6, save_path = './', debug = True):
         self.states_n, self.actions_n = states_n, actions_n
+        self.learn_rate = learn_rate
         self.path = save_path
-        savefile = self._get_savefile()
         self.debug, self.T = debug, 0
         self._graph = tf.Graph()
         with self._graph.as_default():
@@ -19,7 +19,7 @@ class QNetwork(object):
             self._state_input = tf.placeholder(tf.float32, shape=(None, states_n))
             
             # Get the Q output vector-list given the state
-            self._q_output, _ = ffBranch(self._state_input, [256, 512, 256, actions_n])
+            self._q_output, _ = ffBranch(self._state_input, [32, actions_n], [tf.nn.relu, tf.nn.softmax])
             
             # Training Info
             # Inputs Required
@@ -29,16 +29,15 @@ class QNetwork(object):
             # Need to mask q value out by action input
             
             # Loss and optimize
-            self._loss = (self._q_output - self._expected_reward_input)**2.     # Seeks the convergance of the predicted Q given this state, and the expected Q given the Q formula and real rewards
-            self._optimizer = tf.train.GradientDescentOptimizer(learn_rate).minimize(self._loss)
+            self._loss = tf.reduce_mean(tf.squared_difference(self._q_output, self._expected_reward_input)) # Seeks the convergance of the predicted Q given this state, and the expected Q given the Q formula and real rewards
+            self._optimizer = tf.train.AdamOptimizer(learn_rate).minimize(self._loss)
             self._init_op = tf.initialize_all_variables()
             self._saver = tf.train.Saver()
             
             self._sess = tf.Session()
-            if savefile is None: self._sess.run(self._init_op)
-            else: self.load(savefile)
+            self._sess.run(self._init_op)
     
-    def train(self, states, action_mask, expected_rewards):
+    def train(self, states, expected_rewards):
         _, loss, _ = self._sess.run([self._q_output, self._loss, self._optimizer],
                                      feed_dict={ self._state_input      : states,
                                                  self._expected_reward_input : expected_rewards})
@@ -62,22 +61,24 @@ class QNetwork(object):
         
         if self.debug: print("Q: {}, \neA: {}, \neR: {} \n-------".format(q_vec, expected_action, expected_reward))
         return q_vec, expected_action, expected_reward
-                                                 
-    def save(self):
-        self._saver.save(self._sess, self.path, global_step=self.T)
+    
+    # Saving and Loading                           
+    def save(self, savefile=None):
+        if savefile is None: savefile = self.path+"save"
+        return self._saver.save(self._sess, savefile, global_step=self.T)
     def load(self, savefile):
         self._saver.restore(self._sess, savefile)
-    def _get_savefile(self):
-        """ Gets the newest savefile from self.path.
-            Returns None if no checkpoints in directory."""
-        files = []
-        for file in os.listdir(self.path):
-            if file.endswith(".ckpt"):
-                files.append(file)
-        if len(files) == 0:
-            return None
-        else:
-            return list(sorted(files))[0]
+            
+    # Copying
+    def copy(self):
+        """ Note: Does not copy variables. """
+        return QNetwork(self.states_n, self.actions_n, learn_rate = self.learn_rate, save_path = self.path, debug = self.debug)
+    def deepcopy(self):
+        """ Copies variable values as well. """
+        out = self.copy()
+        savefile = self.save(self.path+"copy")
+        out.load(savefile)
+        return out
             
 class QLearner(object):
     """ A network-agnostic Q Learner """
@@ -133,7 +134,67 @@ class QLearner(object):
                 a[action_index[i]] = rewards[i] + self.future_weight * reward_predictions[i]
             expected_rewards.append(a) # This is the Bellman Equation
         
-        return self.Network.train(states, action_mask, expected_rewards)
+        return self.Network.train(states, expected_rewards)
+        
+        # Print & Save   
+        # self.train_writer.add_summary(summ, self.T)
+        # save checkpoints for later
+        # if self.T % self.save_freq == 0:
+        #     self._saver.save(self._session, self._path + '/network', global_step=self.T)
+
+class DoubleQLearner(QLearner):
+    """ A network-agnostic Q Learner """
+    def __init__(self, states_n, actions_n, network,
+                       future_weight = .90, memsize = 1e6, target_update = 100):
+        # Set constants
+        super(DoubleQLearner, self).__init__(states_n, actions_n, network, future_weight, memsize)
+        self.TargetQ = network.deepcopy()
+        self.target_update = target_update
+        
+    def train_step(self, Ns):
+        """ Runs one single training step on network based on random sample from memory.
+            Parameters:
+              Ns   : int; The number of memory samples to train off of. Automatically reduced if not enough in memory.
+              
+            Returns:
+              loss : vector; The list of losses for each sample. """
+              
+        # Get a random sample of the memory
+        # TODO: Prioritize Samples
+        if Ns > len(self.MEMORY):
+            Ns = len(self.MEMORY)
+        mem_sample = random.sample(list(self.MEMORY.Mem), Ns)    # Get random sample of indexes
+        states, action_index, rewards, results, terminal = zip(*mem_sample)
+        states, results = np.vstack(states), np.vstack(results)  # Stack into a minibatch
+        
+        # Get predicted rewards for each result as is
+        rewards_calculated1, _, _  = self.Network.run(states)
+        _, _, reward_predictions1  = self.Network.run(results)
+        _, _, reward_predictions2  = self.TargetQ.run(results)
+        
+        # Create an expectation set, to compare to the run set, giving a loss
+        # TODO: Vectorize this with Numpy
+        expected_rewards1 = []
+        for i in range(Ns):
+            a1 = rewards_calculated1[i]  # You start out with the rewards as they already exist
+            
+            # Then you update them
+            if terminal[i]:
+                a1[action_index[i]] = rewards[i]  # On terminal points, you just reflect the actual reward
+            else:
+                # This is Double Q Learning with a Target Network
+                # Ref: https://jaromiru.com/2016/11/07/lets-make-a-dqn-double-learning-and-prioritized-experience-replay/
+                a1[action_index[i]] = rewards[i] + self.future_weight * reward_predictions2[np.argmax(reward_predictions1[i])]
+            
+            expected_rewards1.append(a1) # Add to the comparison set
+
+        # Train the Network
+        loss1 = self.Network.train(states, expected_rewards1)
+        if self.Network.T%self.target_update == 0:
+            # Copy the network into the target network
+            self.TargetQ = self.Network.deepcopy()
+        
+        return loss1
         
         # Print & Save   
         # self.train_writer.add_summary(summ, self.T)

@@ -145,22 +145,24 @@ def tensor_shape(x):
     """ Returns the shape of a tensor as a normal list. """
     return [d._value for d in x.get_shape()._dims]
     
-def ffLayer(in_layer, size):
+def ffLayer(in_layer, size, activation):
     """ Returns one feed forward layer connected to in_layer of the given size.
         Also returns a tuple containing the weight and bias variables. """
     size_in = tensor_shape(in_layer)[1]
     W = tf.Variable(tf.random_uniform([size_in, size], -1.0, 1.0))
     B = tf.Variable(tf.zeros([size]))
     Y = tf.matmul(in_layer, W) + B
+    if activation is not None:
+        Y = activation(Y)
     return Y, (W, B)
     
-def ffBranch(input_layer, sizes):
+def ffBranch(input_layer, sizes, activations):
     """ Returns a series of feed forward layers branching originally from input_layer.
         Outputs the last layer and a list [(Y0,W0,B0), (Y1,W1,B1), ...] each at the given size in sizes. """
     prev_layer = input_layer
     Y, W, B = [], [], []
-    for size in sizes:
-        y_temp, wb_temp = ffLayer(prev_layer, size)
+    for size, activation in zip(sizes, activations):
+        y_temp, wb_temp = ffLayer(prev_layer, size, activation)
         Y.append(y_temp)
         W.append(wb_temp[0])
         B.append(wb_temp[1])

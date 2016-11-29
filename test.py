@@ -1,6 +1,11 @@
 from QLearner import *
 from lib.nn import hotone
 
+# Matplotlib
+import matplotlib as mpl
+mpl.use('Agg')
+import matplotlib.pyplot as plt
+
 # Get the envrionment
 import gym
 import scipy.optimize
@@ -10,26 +15,44 @@ assert isinstance(env.action_space, gym.spaces.discrete.Discrete)
 states_n = len(env.observation_space.high)
 actions_n = env.action_space.n
 goal_per_100 = 195
+EXPLORE = int(10000)
+OBSERVE = int(1000)
+TESTING = int(200)
 
-def tuning(learn_rate, future_weight = .9, training_period = 1000, testing_period = 200, debug=True):
+def plot_and_save(data, filename, path='./graphs/', smooth = 100):
+    print("Plotting Data...")
+    fig = plt.figure()
+    plt.plot(data)
+    plt.plot(np.convolve(data, np.ones(int(smooth))/float(smooth), mode='same'))
+    plt.title(filename)
+    plt.xlabel("Train Iteration")
+    plt.ylabel("Reward")
+    
+    print("Saving Figure...")
+    fig.savefig(path+filename)
+    plt.clf()
+    print("Done Saving!")
+
+def tuning(learn_rate, future_weight = .9, debug=True):
     learn_rate = float(learn_rate)
-    net = QNetwork(states_n, actions_n, learn_rate, debug=False)
+    net = QNetwork(states_n, actions_n, learn_rate, save_path='./save/', debug=False)
     
     # Create the agent
     agent = RealtimeQLearner(states_n, actions_n, net, 
-                     learn_rate = learn_rate, future_weight = future_weight, memsize = int(1e3),
-                     start_conf = 0.0, end_conf = 1.0, conf_period = int(training_period-training_period*.1))
+                     learn_rate = learn_rate, future_weight = future_weight, memsize = int(1e6),
+                     start_conf = .1, end_conf = 1.0, conf_period = OBSERVE)
     
     # Run the training
     #print(" ------ Training... ------ ")
     try:
         assert future_weight < 1., "Future Weight must be less than 1.0"
-        train_rewards = run(agent, training_period, 300, 1, 200, debug=debug)
+        train_rewards = run(agent, OBSERVE+EXPLORE, 300, 1, 200, debug=debug)
         agent.end_conf = 1.0
+        plot_and_save(train_rewards, "Training-{}-{}-{}.png".format(learn_rate,future_weight,OBSERVE+EXPLORE), path="./graphs/")
     
         # Run the testing
         #print(" ------ Testing... ------ ")
-        test_rewards = run(agent, testing_period, 300, 0, 0, debug=debug)
+        test_rewards = run(agent, TESTING, 300, 0, 0, debug=False)
         score = np.mean(test_rewards)
     except Exception as e:
         print(e)
@@ -44,6 +67,7 @@ def run(agent, n_episodes, t_max, training_steps_per_episode, number_samples, de
     # Over n_episodes episodes
     total = 0
     all_rewards = []
+    reward_period = []
     for i_episode in range(n_episodes):
         observation = env.reset()  # Each episode reset the environment and get the first observation
         observation = np.array([observation]) # Normalize and put in proper 2d format
@@ -78,15 +102,16 @@ def run(agent, n_episodes, t_max, training_steps_per_episode, number_samples, de
             episode_total_reward += reward
             total += reward
             if done:
-                reward = 0
-                agent.act(observation, reward, done) # A dummy action to record the last reward and done variable
                 if render: print("Episode finished after {} timesteps".format(t+1))
                 break
         
         # Record Reward
-        if render: print("Episode {}, Reward: {}, Total: {}".format(i_episode, episode_total_reward, total))
+        if render:
+            print("Episode {}, Reward: {}, Total: {}".format(i_episode, np.mean(reward_period), total))
+            reward_period = []
         all_rewards.append(episode_total_reward)
-           
+        reward_period.append(episode_total_reward)
+        
         # Train after each episode
         if total > 0:  # Training diverges to infinity when training without any positive samples
             if render: print("Training")
@@ -103,12 +128,21 @@ def run(agent, n_episodes, t_max, training_steps_per_episode, number_samples, de
     if debug: print("Rewards: {}".format(all_rewards))
     return all_rewards
 
-# Settings
-init_period, max_period, dp = 500, 1000, 100  # The smallest period to test at
-tune_free_parameters = True
-done = False
-guess = np.array([2e-3, .9])
+# Main testing functions
+def single_try(guess = np.array([2e-3, .92])):
+    score = tuning(guess[0], future_weight = guess[1], debug = True)
+    print("Score: {}".format(score))
+    
+def single_tuning(guess = np.array([2e-3, .92])):
+    res = scipy.optimize.minimize(lambda x: -tuning(*x, debug=False), guess, method='Powell', options = {'maxfev': 100, 'disp': True, 'direc':direc})
+    learn_rate, future_weight = res.x
+    single_try(res.x)
 
+single_try(guess = np.array([2e-3, .99]))
+tune_free_parameters = False
+done = False
+
+"""
 # Main loop
 while not done:
     period = init_period # The amount of training_period we will use in tuning
@@ -135,7 +169,7 @@ while not done:
             break
         
         # Tune and score
-        score = tuning(learn_rate, future_weight = future_weight, training_period = period, testing_period = int(1e2), debug = False)
+        score = tuning(learn_rate, future_weight = future_weight, training_period = period, testing_period = int(1e2), debug = not tune_free_parameters)
         
         # Check for errors
         if score == 0.:    # Indicates an Error
@@ -154,3 +188,4 @@ while not done:
     else:
         init_period += dp
         max_period += dp
+"""
