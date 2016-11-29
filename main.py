@@ -47,7 +47,7 @@ def tuning(learn_rate, future_weight = .9, debug=True):
     #print(" ------ Training... ------ ")
     try:
         assert future_weight < 1., "Future Weight must be less than 1.0"
-        train_rewards = run(agent, OBSERVE+EXPLORE, 300, 1, 200, debug=debug)
+        train_rewards = run(agent, OBSERVE+EXPLORE, 300, 2, 36, debug=debug)
         agent.end_conf = 1.0
         plot_and_save(train_rewards, "Training-{}-{}-{}.png".format(learn_rate,future_weight,OBSERVE+EXPLORE), path="./graphs/")
     
@@ -108,7 +108,7 @@ def run(agent, n_episodes, t_max, training_steps_per_episode, number_samples, de
         
         # Record Reward
         if render:
-            print("Episode {}, Reward: {}, Total: {}".format(i_episode, np.mean(reward_period), total))
+            print("Episode {}, Reward: {}, Total: {}".format(i_episode, np.sum(reward_period), total))
             reward_period = []
         all_rewards.append(episode_total_reward)
         reward_period.append(episode_total_reward)
@@ -139,7 +139,7 @@ def single_tuning(guess = np.array([2e-3, .92])):
     learn_rate, future_weight = res.x
     single_try(res.x)
 
-single_try(guess = np.array([2e-3, .99]))
+single_try(guess = np.array([2e-2, .99]))
 tune_free_parameters = False
 done = False
 
