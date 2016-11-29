@@ -9,11 +9,12 @@ import matplotlib.pyplot as plt
 # Get the envrionment
 import gym
 import scipy.optimize
-env = gym.make('CartPole-v0')
-assert isinstance(env.observation_space, gym.spaces.box.Box)
-assert isinstance(env.action_space, gym.spaces.discrete.Discrete)
-states_n = len(env.observation_space.high)
+env = gym.make('FrozenLake-v0')
+states_n = env.observation_space.n
 actions_n = env.action_space.n
+states  = np.array([hotone(i, states_n) for i in range(states_n)])
+actions = np.array([hotone(i, actions_n) for i in range(actions_n)])
+print("States: {}, Actions: {}".format(states, actions))
 goal_per_100 = 195
 EXPLORE = int(10000)
 OBSERVE = int(1000)
@@ -70,7 +71,7 @@ def run(agent, n_episodes, t_max, training_steps_per_episode, number_samples, de
     reward_period = []
     for i_episode in range(n_episodes):
         observation = env.reset()  # Each episode reset the environment and get the first observation
-        observation = np.array([observation]) # Normalize and put in proper 2d format
+        observation = np.array([hotone(observation, states_n)]) # Normalize and put in proper 2d format
         reward      = None         # Initialize reward to None
         done        = False        # Initialize done to False
         
@@ -89,16 +90,16 @@ def run(agent, n_episodes, t_max, training_steps_per_episode, number_samples, de
         for t in range(t_max):
             # Display state
             #if render: env.render()
-            if render: print("Observation t={}: {}".format(t,observation))
+            #if render: print("Observation t={}: {}".format(t,observation))
             
             # Select action
             #print(observation, observation.shape)
             action, conf = agent.act(observation, reward, done)
-            if render: print("Action: {}, Confidence: {}".format(action, conf))
+            #if render: print("Action: {}, Confidence: {}".format(action, conf))
             
             # Get new observation and reward
             observation, reward, done, info = env.step(action)
-            observation = np.array([observation]) # Normalize and put in proper 2d format
+            observation = np.array([hotone(observation, states_n)]) # Normalize and put in proper 2d format
             episode_total_reward += reward
             total += reward
             if done:
