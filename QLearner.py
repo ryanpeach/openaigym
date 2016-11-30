@@ -29,7 +29,7 @@ class QNetwork(object):
             # Need to mask q value out by action input
             
             # Loss and optimize
-            self._loss = tf.reduce_mean(tf.squared_difference(self._q_output,self._expected_reward_input)) # Seeks the convergance of the predicted Q given this state, and the expected Q given the Q formula and real rewards
+            self._loss = tf.squared_difference(self._q_output,self._expected_reward_input) # Seeks the convergance of the predicted Q given this state, and the expected Q given the Q formula and real rewards
             self._optimizer = tf.train.AdamOptimizer(learn_rate).minimize(self._loss)
             self._init_op = tf.initialize_all_variables()
             self._saver = tf.train.Saver()
@@ -41,7 +41,7 @@ class QNetwork(object):
         _, loss = self._sess.run([self._q_output, self._loss],
                                   feed_dict={ self._state_input           : states,
                                               self._expected_reward_input : expected_rewards})
-        return loss
+        return np.mean(loss)
         
     def train(self, states, expected_rewards):
         _, loss, _ = self._sess.run([self._q_output, self._loss, self._optimizer],
@@ -49,7 +49,7 @@ class QNetwork(object):
                                                  self._expected_reward_input : expected_rewards})
         #print("Loss: {}".format(loss))
         self.T += 1
-        return loss
+        return np.mean(loss)
         
     def run(self, states):
         """ Given a state, returns the q for each possible action,

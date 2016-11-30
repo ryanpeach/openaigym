@@ -15,12 +15,15 @@ actions_n = env.action_space.n
 states  = np.array([hotone(i, states_n) for i in range(states_n)])
 actions = np.array([hotone(i, actions_n) for i in range(actions_n)])
 print("States: {}, Actions: {}".format(states, actions))
-goal_per_100 = 195
-EXPLORE = int(10000)
-OBSERVE = int(5000)
-TESTING = int(200)
+goal = 76
 
-def plot_and_save(data, filename, path='./graphs/', smooth = 100):
+EXPLORE = int(10000)
+OBSERVE = int(10000)
+TESTING = int(200)
+LEARNING_RATE = 5e-4
+FUTURE_WEIGHT = .955
+
+def plot_and_save(data, filename, path='./graphs/', smooth = 100, log = False):
     print("Plotting Data...")
     fig = plt.figure()
     plt.plot(data)
@@ -28,6 +31,7 @@ def plot_and_save(data, filename, path='./graphs/', smooth = 100):
     plt.title(filename)
     plt.xlabel("Train Iteration")
     plt.ylabel("Reward")
+    if log: plt.yscale('log', nonposy='clip')
     
     print("Saving Figure...")
     fig.savefig(path+filename)
@@ -47,19 +51,20 @@ def tuning(learn_rate, future_weight = .9, debug=True):
     #print(" ------ Training... ------ ")
     try:
         assert future_weight < 1., "Future Weight must be less than 1.0"
-        train_rewards = run(agent, OBSERVE+EXPLORE, 300, 2, 36, debug=debug)
+        train_rewards, losses = run(agent, OBSERVE+EXPLORE, 300, 1, 36, debug=debug)
         agent.end_conf = 1.0
         plot_and_save(train_rewards, "Training-{}-{}-{}.png".format(learn_rate,future_weight,OBSERVE+EXPLORE), path="./graphs/")
+        plot_and_save(losses, "Training-{}-{}-{}-losses.png".format(learn_rate,future_weight,OBSERVE+EXPLORE), path="./graphs/", log = True)
     
         # Run the testing
         #print(" ------ Testing... ------ ")
         test_rewards = run(agent, TESTING, 300, 0, 0, debug=False)
-        score = np.mean(test_rewards)
+        score = np.sum(test_rewards)
     except Exception as e:
         print(e)
         score = 0.
         train_rewards = [0.]
-        
+    
     #if debug: print("Final Q: {}".format(net.run(states)[0]))
     print("Training Rewards: {}, Learn Rate: {}, Future Weight: {}, Score: {}".format(sum(train_rewards), learn_rate, future_weight, score))
     return score
@@ -69,6 +74,7 @@ def run(agent, n_episodes, t_max, training_steps_per_episode, number_samples, de
     total = 0
     all_rewards = []
     reward_period = []
+    losses = []
     for i_episode in range(n_episodes):
         observation = env.reset()  # Each episode reset the environment and get the first observation
         observation = np.array([hotone(observation, states_n)]) # Normalize and put in proper 2d format
@@ -122,28 +128,32 @@ def run(agent, n_episodes, t_max, training_steps_per_episode, number_samples, de
                     m = (training_steps_per_episode // 10)
                     if m == 0 or i % m == 0:
                         print("Training Step: {}/{}".format(i, training_steps_per_episode))
-                    
+                        if len(losses)>100: print("Loss: {}".format(np.mean(losses[-100:])))
+                        
                 # Train agent once
-                agent.train_step(number_samples)
-            
+                losses.append(agent.train_step(number_samples))
+    
     if debug: print("Rewards: {}".format(all_rewards))
-    return all_rewards
+    return all_rewards, losses
 
 # Main testing functions
 def single_try(guess = np.array([2e-3, .92])):
     score = tuning(guess[0], future_weight = guess[1], debug = True)
     print("Score: {}".format(score))
+    return score
     
 def single_tuning(guess = np.array([2e-3, .92])):
     res = scipy.optimize.minimize(lambda x: -tuning(*x, debug=False), guess, method='Powell', options = {'maxfev': 100, 'disp': True, 'direc':direc})
     learn_rate, future_weight = res.x
     single_try(res.x)
 
-single_try(guess = np.array([2e-2, .99]))
-tune_free_parameters = False
-done = False
+score = single_try(guess = np.array([LEARNING_RATE, FUTURE_WEIGHT]))
+print("Acheived Goal? {}".format(score > goal))
+
 
 """
+tune_free_parameters = False
+done = False
 # Main loop
 while not done:
     period = init_period # The amount of training_period we will use in tuning
