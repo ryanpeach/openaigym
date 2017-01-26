@@ -19,7 +19,7 @@ class QNetwork(object):
             self._state_input = tf.placeholder(tf.float32, shape=(None, states_n))
             
             # Get the Q output vector-list given the state
-            self._q_output, _ = ffBranch(self._state_input, [32, actions_n], [tf.nn.relu, tf.nn.softmax])
+            self._q_output, _ = ffBranch(self._state_input, [32, 32, 32, actions_n], [tf.nn.relu, tf.nn.relu, tf.nn.relu, tf.nn.softmax])
             
             # Training Info
             # Inputs Required
